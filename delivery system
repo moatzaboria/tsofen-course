@@ -1,0 +1,91 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: my-s3-bucket
+  
+  MyFile:
+    Type: AWS::S3::Object
+    Properties:
+      Bucket: !Ref MyS3Bucket
+      Key: my-file.txt
+      Body: This is a test file.
+      
+  S3UploadTrigger:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: s3-upload-alert-lambda
+      Handler: index.handler
+      Role: !GetAtt 
+        - LambdaExecutionRole
+        - Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          
+          exports.handler = (event, context, callback) => {
+            const s3 = new AWS.S3({apiVersion: '2006-03-01'});
+            const bucket = event.Records[0].s3.bucket.name;
+            const key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, ' '));
+            const params = {
+              Bucket: bucket,
+              Key: key
+            };
+            
+            s3.getObject(params, (err, data) => {
+              if (err) {
+                console.log(err);
+                callback(err);
+              } else {
+                console.log("Successfully retrieved object");
+                callback(null, "Success");
+              }
+            });
+          };
+          
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - sts:AssumeRole
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Policies:
+      - PolicyName: s3-read-only-policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            Resource: !Sub arn:aws:s3:::my-s3-bucket/*
+            
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MyS3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: AllowPublicRead
+          Effect: Allow
+          Principal: '*'
+          Action: 's3:GetObject'
+          Resource: !Sub arn:aws:s3:::my-s3-bucket/*
+          
+  S3UploadEvent:
+    Type: AWS::S3::BucketEventConfiguration
+    Properties:
+      Bucket: !Ref MyS3Bucket
+      Events: s3:ObjectCreated:*
+      LambdaFunctionConfigurations:
+      - Event
