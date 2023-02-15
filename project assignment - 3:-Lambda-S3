@@ -1,0 +1,66 @@
+Resources:
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: source-bucket-name
+
+  DestinationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: destination-bucket-name
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: "s3-access"
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            - s3:PutObject
+            Resource:
+            - !Join [ "", [ "arn:aws:s3:::", !Ref 'SourceBucket', "/*" ] ]
+            - !Join [ "", [ "arn:aws:s3:::", !Ref 'DestinationBucket', "/*" ] ]
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket: lambda-function-bucket
+        S3Key: lambda-function-code.zip
+      FunctionName: s3-copy-function
+      Handler: index.handler
+      Role: !GetAtt FunctionRole.Arn
+      Runtime: nodejs12.x
+      Timeout: 300
+
+  S3Event:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      EventSourceArn: !GetAtt SourceBucket.Arn
+      FunctionName: !GetAtt LambdaFunction.Arn
+
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/s3-copy-function
+
+  LambdaLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref LambdaLogGroup
+      LogStreamName: !Sub '{date}/{time}/{request_id}'
+      DependsOn: LambdaLogGroup
